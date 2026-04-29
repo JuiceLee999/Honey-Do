@@ -22,6 +22,7 @@ const DB_DIR = path.join(__dirname, 'db');
 const DB_PATH = path.join(DB_DIR, 'homeworks.db');
 
 fs.mkdirSync(DB_DIR, { recursive: true });
+try { fs.rmSync(DB_PATH + '.lock', { recursive: true, force: true }); } catch {}
 const db = new Database(DB_PATH);
 
 // ── Schema ──────────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ router.post('/api/forgot-password', resetLimiter, async (req, res) => {
       subject: 'Password reset — Honey-Do',
       text:    `You requested a password reset for your Honey-Do account.\n\nClick the link below to set a new password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
       html:    `<p>You requested a password reset for your Honey-Do account.</p><p><a href="${resetUrl}">Reset your password →</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`,
-    }).catch(() => {}); // non-fatal — don't leak send failures
+    }).catch(err => console.error('Email send failed:', err.message));
   }
 
   res.json({ ok: true }); // always succeed to prevent user enumeration
