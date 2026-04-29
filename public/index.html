@@ -377,6 +377,11 @@ body.dark .tag-someday { background: #151030; color: #a78bfa; }
 .btn-auth-submit:hover { background: #a07e10; }
 .btn-auth-submit:disabled { opacity: 0.6; cursor: default; }
 .auth-error { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); margin-top: 10px; min-height: 16px; text-align: center; }
+.auth-back { background: none; border: none; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 1px; cursor: pointer; padding: 0; margin-bottom: 18px; display: flex; align-items: center; gap: 5px; }
+.auth-back:hover { color: var(--ink); }
+.auth-forgot-link { text-align: center; margin-top: 10px; }
+.auth-forgot-link a { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 0.5px; }
+.auth-forgot-link a:hover { color: var(--ink); }
 
 /* ── SHARE SECTION ── */
 .share-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -576,15 +581,20 @@ mark { background: var(--yellow-light); color: var(--ink); border-radius: 1px; p
   <div class="auth-card">
     <div class="auth-title">Honey-Do</div>
     <div class="auth-subtitle">Project Tracker</div>
-    <div class="auth-tabs">
-      <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Sign In</button>
-      <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Create Account</button>
+    <div id="auth-back-wrap" style="display:none">
+      <button class="auth-back" onclick="showLoginView()">← Back to sign in</button>
     </div>
-    <div class="auth-field">
-      <label>Email</label>
+    <div id="auth-tabs-wrap">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Sign In</button>
+        <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Create Account</button>
+      </div>
+    </div>
+    <div class="auth-field" id="auth-email-wrap">
+      <label id="auth-email-label">Email</label>
       <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" />
     </div>
-    <div class="auth-field">
+    <div class="auth-field" id="auth-password-wrap">
       <label>Password</label>
       <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" />
     </div>
@@ -592,7 +602,20 @@ mark { background: var(--yellow-light); color: var(--ink); border-radius: 1px; p
       <label>Confirm Password</label>
       <input type="password" id="auth-confirm" placeholder="Repeat password" autocomplete="new-password" />
     </div>
+    <div id="auth-reset-wrap" style="display:none">
+      <div class="auth-field">
+        <label>New Password</label>
+        <input type="password" id="auth-new-password" placeholder="New password (min 8 chars)" autocomplete="new-password" />
+      </div>
+      <div class="auth-field">
+        <label>Confirm New Password</label>
+        <input type="password" id="auth-reset-confirm" placeholder="Repeat new password" autocomplete="new-password" />
+      </div>
+    </div>
     <button class="btn-auth-submit" id="btn-auth-submit" onclick="authSubmit()">Sign In →</button>
+    <div class="auth-forgot-link" id="auth-forgot-link">
+      <a href="#" onclick="showForgotView();return false">Forgot password?</a>
+    </div>
     <div class="auth-error" id="auth-error"></div>
   </div>
 </div>
@@ -1259,20 +1282,120 @@ function hideAuthScreen() {
   document.getElementById('auth-screen').style.display = 'none';
 }
 
+let authView = 'login';
+
 function switchAuthTab(tab) {
+  authView = tab;
   const isRegister = tab === 'register';
   document.getElementById('tab-login').classList.toggle('active', !isRegister);
   document.getElementById('tab-register').classList.toggle('active', isRegister);
+  document.getElementById('auth-tabs-wrap').style.display = '';
+  document.getElementById('auth-back-wrap').style.display = 'none';
+  document.getElementById('auth-email-wrap').style.display = '';
+  document.getElementById('auth-password-wrap').style.display = '';
   document.getElementById('auth-confirm-wrap').style.display = isRegister ? '' : 'none';
+  document.getElementById('auth-reset-wrap').style.display = 'none';
+  document.getElementById('auth-forgot-link').style.display = isRegister ? 'none' : '';
   document.getElementById('btn-auth-submit').textContent = isRegister ? 'Create Account →' : 'Sign In →';
   document.getElementById('auth-error').textContent = '';
   document.getElementById('auth-password').setAttribute('autocomplete', isRegister ? 'new-password' : 'current-password');
 }
 
+function showLoginView() {
+  switchAuthTab('login');
+}
+
+function showForgotView() {
+  authView = 'forgot';
+  document.getElementById('auth-tabs-wrap').style.display = 'none';
+  document.getElementById('auth-back-wrap').style.display = '';
+  document.getElementById('auth-email-label').textContent = 'Account Email';
+  document.getElementById('auth-email-wrap').style.display = '';
+  document.getElementById('auth-password-wrap').style.display = 'none';
+  document.getElementById('auth-confirm-wrap').style.display = 'none';
+  document.getElementById('auth-reset-wrap').style.display = 'none';
+  document.getElementById('auth-forgot-link').style.display = 'none';
+  document.getElementById('btn-auth-submit').textContent = 'Send Reset Link →';
+  document.getElementById('auth-error').textContent = '';
+}
+
+function showResetView(token) {
+  authView = 'reset';
+  window._resetToken = token;
+  document.getElementById('auth-tabs-wrap').style.display = 'none';
+  document.getElementById('auth-back-wrap').style.display = 'none';
+  document.getElementById('auth-email-wrap').style.display = 'none';
+  document.getElementById('auth-password-wrap').style.display = 'none';
+  document.getElementById('auth-confirm-wrap').style.display = 'none';
+  document.getElementById('auth-reset-wrap').style.display = '';
+  document.getElementById('auth-forgot-link').style.display = 'none';
+  document.getElementById('btn-auth-submit').textContent = 'Set New Password →';
+  document.getElementById('auth-error').textContent = '';
+}
+
+async function forgotSubmit() {
+  const email = document.getElementById('auth-email').value.trim();
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('btn-auth-submit');
+  errEl.textContent = '';
+  if (!email) { errEl.textContent = 'Email is required'; return; }
+  btn.disabled = true;
+  try {
+    await fetch(BASE + '/api/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    errEl.style.color = 'var(--green)';
+    errEl.textContent = 'If that email is registered, a reset link has been sent.';
+    btn.style.display = 'none';
+  } catch {
+    errEl.style.color = '';
+    errEl.textContent = 'Request failed — please try again.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function resetSubmit() {
+  const newPw = document.getElementById('auth-new-password').value;
+  const confirm = document.getElementById('auth-reset-confirm').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('btn-auth-submit');
+  errEl.style.color = '';
+  errEl.textContent = '';
+  if (!newPw) { errEl.textContent = 'New password is required'; return; }
+  if (newPw.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+  if (newPw !== confirm) { errEl.textContent = 'Passwords do not match'; return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch(BASE + '/api/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: window._resetToken, password: newPw }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Something went wrong'; return; }
+    // Clear ?reset= from URL without reload
+    history.replaceState(null, '', window.location.pathname);
+    localStorage.setItem('homeworks_token', data.token);
+    currentUserEmail = data.email;
+    document.getElementById('header-email').textContent = data.email;
+    hideAuthScreen();
+    await loadAppData();
+  } catch {
+    errEl.textContent = 'Could not connect to server';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function authSubmit() {
+  if (authView === 'forgot') { forgotSubmit(); return; }
+  if (authView === 'reset')  { resetSubmit();  return; }
   const email = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
-  const isRegister = document.getElementById('tab-register').classList.contains('active');
+  const isRegister = authView === 'register';
   const errEl = document.getElementById('auth-error');
   const btn = document.getElementById('btn-auth-submit');
 
@@ -2672,7 +2795,7 @@ async function loadAppData() {
 async function init() {
   if (document.body.classList.contains('dark')) document.getElementById('btn-dark-toggle').textContent = '☀';
 
-  ['auth-email','auth-password','auth-confirm'].forEach(id => {
+  ['auth-email','auth-password','auth-confirm','auth-new-password','auth-reset-confirm'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit(); });
   });
@@ -2682,7 +2805,11 @@ async function init() {
     navigator.serviceWorker.register('/hp/sw.js', { scope: '/hp/' }).catch(() => {});
   }
 
-const token = localStorage.getItem('homeworks_token');
+// Handle password reset link (?reset=TOKEN)
+  const resetToken = new URLSearchParams(window.location.search).get('reset');
+  if (resetToken) { showAuthScreen(); showResetView(resetToken); return; }
+
+  const token = localStorage.getItem('homeworks_token');
   if (!token) { showAuthScreen(); return; }
 
   try {

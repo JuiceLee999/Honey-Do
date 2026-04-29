@@ -7,6 +7,14 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const nodemailer = require('nodemailer');
+
+const mailer = nodemailer.createTransport({
+  host:   process.env.EMAIL_HOST,
+  port:   Number(process.env.EMAIL_PORT) || 587,
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth:   { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,6 +41,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS user_data (
     user_id INTEGER PRIMARY KEY,
     value   TEXT NOT NULL DEFAULT '{"projects":[],"customCats":[],"contractors":[],"properties":[]}',
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 
@@ -103,6 +118,14 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts, please try again later.' }
 });
 
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset attempts, please try again later.' }
+});
+
 function verifyToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -165,6 +188,60 @@ router.post('/api/login', authLimiter, async (req, res) => {
 router.post('/api/logout', verifyToken, (req, res) => {
   db.prepare('UPDATE users SET last_logout_at = ? WHERE id = ?').run([Date.now(), req.user.userId]);
   res.json({ ok: true });
+});
+
+// ── Password reset routes ─────────────────────────────────────────────────────
+
+router.post('/api/forgot-password', resetLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Valid email required' });
+
+  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (user) {
+    const rawToken  = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run([user.id]);
+    db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run([tokenHash, user.id, expiresAt]);
+
+    const proto    = req.headers['x-forwarded-proto'] || req.protocol;
+    const host     = req.headers['x-forwarded-host']  || req.get('host');
+    const resetUrl = `${proto}://${host}${BASE}?reset=${rawToken}`;
+
+    mailer.sendMail({
+      from:    process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to:      email,
+      subject: 'Password reset — Honey-Do',
+      text:    `You requested a password reset for your Honey-Do account.\n\nClick the link below to set a new password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
+      html:    `<p>You requested a password reset for your Honey-Do account.</p><p><a href="${resetUrl}">Reset your password →</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`,
+    }).catch(() => {}); // non-fatal — don't leak send failures
+  }
+
+  res.json({ ok: true }); // always succeed to prevent user enumeration
+});
+
+router.post('/api/reset-password', resetLimiter, async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const row = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(tokenHash);
+
+  if (!row) return res.status(400).json({ error: 'Invalid or expired reset link' });
+  if (Date.now() > row.expires_at) {
+    db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run([tokenHash]);
+    return res.status(400).json({ error: 'Reset link has expired — please request a new one' });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+  db.prepare('UPDATE users SET password_hash = ?, last_logout_at = ? WHERE id = ?').run([hash, Date.now(), row.user_id]);
+  db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run([tokenHash]);
+
+  const userRow = db.prepare('SELECT id, email FROM users WHERE id = ?').get(row.user_id);
+  const newToken = jwt.sign({ userId: userRow.id, email: userRow.email }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token: newToken, email: userRow.email });
 });
 
 // ── Data routes ──────────────────────────────────────────────────────────────
